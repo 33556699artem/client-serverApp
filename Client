@@ -1,0 +1,222 @@
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.*;
+import java.net.*;
+import java.util.Arrays;
+
+public class Main {
+    private static JFrame mainFrame;
+    private static Matrix matrix;
+    private static Socket clientSocket;
+    private static InputStream in;
+    private static OutputStream out;
+    private static ObjectOutputStream objectOutputStream;
+    private static DataInputStream dataInputStream;
+    private static JPanel mainPanel;
+    private static JPanel matrixPanel;
+    private static boolean isMatrix = true;
+    private static double sumOddElements;
+
+    public static void main(String[] args) {
+
+        mainFrame = new JFrame("Приложение");
+        mainFrame.setSize(600, 550);
+        mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        mainFrame.setResizable(false);
+        mainFrame.setLocationRelativeTo(null);
+
+        JFrame error = new JFrame("Ошибка");
+        JPanel jp = new JPanel();
+        Label labelError = new Label("");
+        labelError.setAlignment(Label.CENTER);
+        jp.add(labelError);
+        labelError.setVisible(true);
+        error.add(jp);
+        error.add(labelError);
+        error.setSize(400, 100);
+        error.setVisible(false);
+        error.setResizable(false);
+        error.setLocationRelativeTo(null);
+
+        mainPanel = new JPanel();
+        mainFrame.add(mainPanel);
+
+        Label label1 = new Label("Введите количество строк матрицы: ");
+        Font font1 = new Font("", Font.PLAIN, 20);
+        label1.setFont(font1);
+        mainPanel.add(label1);
+        JTextField jTF1 = new JTextField(50);
+        mainPanel.add(jTF1);
+
+        Label label2 = new Label("Введите количество столбцов матрицы: ");
+        Font font2 = new Font("", Font.PLAIN, 20);
+        label2.setFont(font2);
+        mainPanel.add(label2);
+        JTextField jTF2 = new JTextField(50);
+        mainPanel.add(jTF2);
+
+        JButton buttonCreateMatrix = new JButton("Создать матрицу");
+        mainPanel.add(buttonCreateMatrix);
+        JButton buttonClearing = new JButton("Очистить");
+        mainPanel.add(buttonClearing);
+        JButton buttonSum = new JButton("Сумма");
+        mainPanel.add(buttonSum);
+        Label label3 = new Label("");
+        label3.setVisible(false);
+        Font font3 = new Font("", Font.PLAIN, 10);
+        label3.setFont(font3);
+        mainPanel.add(label3);
+        mainFrame.setVisible(true);
+
+        buttonClearing.addActionListener(e -> {
+            if (!isMatrix) {
+                mainPanel.remove(matrixPanel);
+                jTF1.setEditable(true);
+                jTF2.setEditable(true);
+                jTF1.setText("");
+                jTF2.setText("");
+                label3.setVisible(false);
+                isMatrix = true;
+                mainFrame.repaint();
+            } else {
+                error.setVisible(true);
+                error.setResizable(false);
+                labelError.setText("Создайте матрицу.");
+            }
+        });
+
+        buttonSum.addActionListener(e -> {
+            if (!isMatrix) {
+                label3.setVisible(true);
+                label3.setText("Сумма нечётных(по значению) элементов: " + Math.round(sumOddElements * 100.0)/100.0);
+                mainFrame.setVisible(true);
+            } else {
+                error.setVisible(true);
+                error.setResizable(false);
+                labelError.setText("Создайте матрицу.");
+            }
+        });
+
+        buttonCreateMatrix.addActionListener(e -> {
+            if (isMatrix) {
+                try {
+                    int rows = bordersOfMatrix(jTF1.getText());
+                    int columns = bordersOfMatrix(jTF2.getText());
+
+                    matrix = new Matrix(rows, columns);
+
+                    printMatrix(rows, columns);
+                    try {
+                        matrixToServer();
+                    } catch (IOException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                    isMatrix = false;
+                    jTF1.setEditable(false);
+                    jTF2.setEditable(false);
+                    mainFrame.setVisible(true);
+                } catch (BordersOfMatrixException ex1) {
+                    error.setVisible(true);
+                    error.setResizable(false);
+                    labelError.setText(ex1.getMessage());
+                    jTF1.setText("");
+                    jTF2.setText("");
+                }
+            } else {
+                error.setVisible(true);
+                error.setResizable(false);
+                labelError.setText("Матрица уже создана.");
+            }
+        });
+        mainFrame.setVisible(true);
+    }
+
+    public static int bordersOfMatrix(String border) throws BordersOfMatrixException {
+        int res;
+        try {
+            res = Integer.parseInt(border);
+            if (res < 1 || res > 100) {
+                throw new BordersOfMatrixException();
+            }
+        } catch (Exception e) {
+            throw new BordersOfMatrixException();
+        }
+        return res;
+    }
+
+    public static void printMatrix(int rows, int columns) {
+        matrixPanel = new JPanel();
+        DefaultTableModel model = new DefaultTableModel(rows, columns);
+
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < columns; j++) {
+                model.setValueAt(Math.round(matrix.getMatrixElement(i, j) * 100.0) / 100.0, i, j);
+            }
+        }
+
+        JTable table = new JTable(model);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        table.setDefaultEditor(Object.class, null);
+        table.setFillsViewportHeight(true);
+        table.getTableHeader().setVisible(false);
+
+        JScrollPane scrollPane = new JScrollPane(table, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setPreferredSize(new Dimension(500, 300));
+
+        matrixPanel.add(scrollPane);
+        mainPanel.add(matrixPanel);
+    }
+
+    public static void matrixToServer() throws IOException {
+        try {
+            clientSocket = new Socket("localhost", 4444);
+            out = clientSocket.getOutputStream();
+            in = clientSocket.getInputStream();
+            objectOutputStream = new ObjectOutputStream(out);
+            objectOutputStream.writeObject(matrix);
+            dataInputStream = new DataInputStream(in);
+            sumOddElements = dataInputStream.readDouble();
+
+        } catch (UnknownHostException ex) {
+            JFrame error = new JFrame("Ошибка");
+            JPanel jp = new JPanel();
+            Label labelError = new Label("");
+            labelError.setAlignment(Label.CENTER);
+            jp.add(labelError);
+            labelError.setVisible(true);
+            error.add(jp);
+            error.add(labelError);
+            error.setSize(400, 100);
+            error.setResizable(false);
+            error.setLocationRelativeTo(null);
+            error.setVisible(true);
+            labelError.setText("Don't know about host: localhost.");
+            isMatrix = false;
+        }  catch (IOException ex1) {
+            JFrame error = new JFrame("Ошибка");
+            JPanel jp = new JPanel();
+            Label labelError = new Label("");
+            labelError.setAlignment(Label.CENTER);
+            jp.add(labelError);
+            labelError.setVisible(true);
+            error.add(jp);
+            error.add(labelError);
+            error.setSize(400, 100);
+            error.setResizable(false);
+            error.setLocationRelativeTo(null);
+            error.setVisible(true);
+            labelError.setText("Couldn't get I/O for the connection to: localhost.");
+            isMatrix = false;
+            System.out.println(Arrays.toString(ex1.getStackTrace()));
+        } finally {
+            in.close();
+            out.close();
+            dataInputStream.close();
+            objectOutputStream.close();
+            clientSocket.close();
+        }
+    }
+}
